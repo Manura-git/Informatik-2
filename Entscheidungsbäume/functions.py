@@ -1,3 +1,12 @@
+from sklearn.datasets import load_iris
+import altair as alt
+import pandas as pd
+import numpy as np
+import streamlit as st
+
+
+
+
 class DecisionTree:
     '''
     Die Klasse basiert auf dem ID3 Algorithmus und kann zur Klassifikation von Daten mit kontinuierlichen Werten anhand von 2 Features verwendet werden
@@ -50,7 +59,9 @@ class DecisionTree:
         None 
             Der Entscheidungsbaum wird in der Klasse in self.root gespeichert
         '''
-        self.root = self._build_tree(X, y, depth=0)
+        global_default = int(y.value_counts().idxmax()) if len(y) > 0 else None #Die häufigste Klasse des gesamten Datensatzes als Sicherheit
+        
+        self.root = self._build_tree(X, y, depth=0,parent_default=global_default)
     
     def predict(self,X):
         '''
@@ -72,7 +83,7 @@ class DecisionTree:
         return pred_list
 
         
-    def _build_tree(self,X,y,depth=0):   
+    def _build_tree(self,X,y,depth=0,parent_default=None):   
         '''Diese Methode beeinhaltet den eigentlichen Algorithmus.
         Zuerst wird überprüft, ob eine der Abbruchbedingungen erreicht wird. Falls ja, wird geschaut, welche Klasse am häufigsten vorkommt 
         und anschließend wird ein Leaf-Node erstellt mit dieser Zielklasse.
@@ -85,20 +96,32 @@ class DecisionTree:
         Daraus kann dann wieder eintweder ein leaf oder 2 weitere Kinder (childs) entstehen.
         
         Beide Objekte werden dann als current_Node gespeichert.'''
-        #print('depth=',depth)
-        if depth >= self.max_depth or len(X) <= self.min_samples or int(len(y.unique())) == 1:
-            value = int(y.value_counts().idxmax())
-            return self.Node(feature=value) #Blatt wird generiert
+        if len(y) > 0:
+            current_default = int(y.value_counts().idxmax())
+        else:
+            current_default = parent_default
+        
+        
+        if len(X) == 0 or len(y) == 0:
+            return self.Node(feature=parent_default) #Wenn X oder y leer sind, wird nicht None zurückgegeben sondern die Klassifizierung des Elternknotens
+        
+        
+        if depth >= self.max_depth or len(X) <= self.min_samples or int(len(y.unique())) == 1: #Abbruchbedingungen
+            return self.Node(feature=current_default) #Bei erreichen einer Abbruchbedingung wird ein Node mit der aktuell häufigsten Klasse erstellt
 
         thresh, axis_ = self._calc_max_IG(X,y)
         mask_ = self._mask(X,thresh,axis_)
+        
+        #### Zusätzliche Abbruchbedingung
+        if len(X.iloc[:, axis_].unique()) == 1:
+            return self.Node(feature=current_default)
+        ####
+        
+        left_child_ = self._build_tree(X[mask_],y[mask_],depth+1,parent_default=current_default)
+        right_child_ = self._build_tree(X[~mask_],y[~mask_],depth+1,parent_default=current_default)
 
         
-        left_child_ = self._build_tree(X[mask_],y[mask_],depth+1)
-        right_child_ = self._build_tree(X[~mask_],y[~mask_],depth+1)
-
-        
-        current_Node = self.Node(threshold=thresh,left_child=left_child_,right_child=right_child_,axis=axis_)
+        current_Node = self.Node(feature=current_default,threshold=thresh,left_child=left_child_,right_child=right_child_,axis=axis_)
         return current_Node
         
     def _calc_Entropy(self,y):
@@ -108,7 +131,7 @@ class DecisionTree:
     
         for i in range(len(classes)):
             p = counts[i]/sum(counts) #Berechnung der Wahrscheinlichkeitfür eine Klasse
-            entropy = -p*np.log2(p) #Entrope Formel
+            entropy = -p*np.log2(p) #Entropie Formel
             H_.append(entropy)
         return sum(H_)
 
@@ -116,8 +139,8 @@ class DecisionTree:
         '''Hilfsfunktion. berechnet den Information gain für 2 Teilmengen einer Datenmenge, aufgeteilt an einer threshold, über der noch iteriert werden muss'''
         h_parent = self._calc_Entropy(y)
         #maske
-        mask_r = X_column >= threshold
-        mask_l = X_column < threshold
+        mask_r = X_column > threshold
+        mask_l = X_column <= threshold
         n_ges = len(y)
         n_r = sum(mask_r)
         n_l = sum(mask_l)
@@ -165,16 +188,54 @@ class DecisionTree:
             
     def _check_object(self,x,node):
         '''geht die Nodes durch und gibt den passenden,vorhergesagten, Klassenwert aus'''
+        #Sicherheit
+        if node is None:
+            return None
+        
+        
+        
         #Leaf-Check
-        if node.left_child == None and node.right_child == None:
+        if node.left_child is None and node.right_child is None:
             return node.feature
         
         #gesuchter x wert, je nach axis
         _x = x[node.axis]
 
         if _x <= node.threshold:
-            return self._check_object(x,node.left_child)
-            
+            if node.left_child is not None:
+                return self._check_object(x,node.left_child)
+            else:
+                return node.feature
         else:
-            return self._check_object(x,node.right_child)
+            if node.right_child is not None:
+                return self._check_object(x,node.right_child)
+            else:
+                return node.feature
     
+    
+    
+#Methoden als eigene Funktionen für die Visualisierung in Streamlit
+def _calc_Entropy(y):
+    '''Für jedes Feature wird die Entropie gemäß der Gleichung berechnet.'''
+    H_ = []
+    classes, counts = np.unique(y,return_counts=True)
+
+    for i in range(len(classes)):
+        p = counts[i]/sum(counts) #Berechnung der Wahrscheinlichkeitfür eine Klasse
+        entropy = -p*np.log2(p) #Entropie Formel
+        H_.append(entropy)
+    return sum(H_)
+
+def _calc_information_gain(X_column,y,threshold):
+    '''Hilfsfunktion. berechnet den Information gain für 2 Teilmengen einer Datenmenge, aufgeteilt an einer threshold, über der noch iteriert werden muss'''
+    h_parent = _calc_Entropy(y)
+    #maske
+    mask_r = X_column >= threshold
+    mask_l = X_column < threshold
+    n_ges = len(y)
+    n_r = sum(mask_r)
+    n_l = sum(mask_l)
+    h_r = _calc_Entropy(y[mask_r])
+    h_l = _calc_Entropy(y[mask_l])
+    IG = h_parent -( ((n_r/n_ges)*h_r) + ((n_l/n_ges)*h_l)  )
+    return IG
