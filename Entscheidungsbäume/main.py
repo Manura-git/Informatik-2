@@ -1,11 +1,13 @@
 from sklearn.datasets import load_iris
+from sklearn.datasets import make_moons
 import altair as alt
 import pandas as pd
 import numpy as np
 import streamlit as st
-from functions import _calc_information_gain, _calc_Entropy, DecisionTree, Node
+from DecisionTree import _calc_information_gain, _calc_Entropy, DecisionTree, Node
+from functions import Entscheidungsgrenzen
 import inspect
-
+import random
 # =============================================================================
 # STREAMLIT VISUALISIERUNG
 # =============================================================================
@@ -14,7 +16,7 @@ st.set_page_config(layout="wide")
 
 st.title('Präsentation Entscheidungsbaum')
 
-#----Datensatz importieren----#
+#----IRIS importieren----#
 
 df = load_iris(as_frame=True).frame
 df_features = df.iloc[:,2:-1]   #Feature Werte für da Training des Entscheidungsbaumes
@@ -28,9 +30,12 @@ X = df_features #DataFrame shape=(150, 2)
 y = df_target  #Series shape=(150,)
 
 
+
+
+
 #----Streamlit code----#
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7,tab8 = st.tabs(["Folie 1: Intro", "Folie 2: Iris Datensatz", "Folie 3: mathematische Grundlage","Folie 4: Visualisierung","Folie5: Code","Folie 6:Trainingsdaten","Folie 7: Training","Folie 8: Baum Visualisierung"])
+tab1, tab2, tab3, tab4, tab5, tab6, tab7,tab8, tab9 = st.tabs(["Folie 1: Intro", "Folie 2: Iris Datensatz", "Folie 3: mathematische Grundlage","Folie 4: Visualisierung","Folie5: Code","Folie 6:Trainingsdaten","Folie 7: Training","Folie 8: Baum Visualisierung",'Moons - Beispiel'])
 
 
 with tab1: 
@@ -243,8 +248,34 @@ with tab8:
     st.write('Predicted:')
     st.dataframe(X_predicted)
     
+with tab9:
+    st.markdown("**Baum-Einstellungen**")
+    max_depth_moons = st.slider('Maximale Tiefe Moons',1,10)
+    min_samples_moons = st.slider('Minimale Samples Moons',0,30)
     
     
+    noise_moons = st.slider('Noise',min_value=0.01,max_value=0.25,step=0.01)
+    
+    if 'randint' not in st.session_state:
+        st.session_state.randint = random.randint(1,100)
+    if st.button('reset random state'):
+        st.session_state.randint = random.randint(1,100)
+    
+    
+    #----MOONS importieren----#
+    X_array, y_array = make_moons(n_samples=150,noise=noise_moons,random_state=st.session_state.randint)
+    X_moons = pd.DataFrame(X_array,columns=['1','2'])
+    y_moons = pd.DataFrame(y_array,columns=['target'])
+    
+    df_moons_ges= X_moons.copy()
+    df_moons_ges['target'] = y_moons
+    
+    chart_moons = alt.Chart(df_moons_ges).mark_circle().encode(x='1',y='2',color='target:N').interactive()
+    #st.altair_chart(chart_moons)
+    
+    y_moons = y_moons['target']
+    
+    Entscheidungsgrenzen(max_depth_moons,min_samples_moons,X_moons,y_moons)
     
     
     
